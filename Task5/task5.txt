@@ -1,0 +1,93 @@
+wget http://goo.gl/lwgoxw
+mkdir ./test
+unzip ./lwgoxw -d ./test
+mkdir ./dataset
+mv ./test/ipinyou.contest.dataset/training3rd/imp.20131019.txt.bz2 ./dataset
+mv ./test/ipinyou.contest.dataset/training3rd/imp.20131020.txt.bz2 ./dataset
+mv ./test/ipinyou.contest.dataset/training3rd/imp.20131021.txt.bz2 ./dataset
+mv ./test/ipinyou.contest.dataset/training3rd/imp.20131022.txt.bz2 ./dataset
+mv ./test/ipinyou.contest.dataset/training3rd/imp.20131023.txt.bz2 ./dataset
+mv ./test/ipinyou.contest.dataset/training3rd/imp.20131024.txt.bz2 ./dataset
+mv ./test/ipinyou.contest.dataset/training3rd/imp.20131025.txt.bz2 ./dataset
+mv ./test/ipinyou.contest.dataset/training3rd/imp.20131026.txt.bz2 ./dataset
+mv ./test/ipinyou.contest.dataset/training3rd/imp.20131027.txt.bz2 ./dataset
+mv ./test/ipinyou.contest.dataset/city.cn.txt  ./dataset
+bzip2 -d ./dataset/imp.20131019.txt.bz2
+bzip2 -d ./dataset/imp.20131020.txt.bz2
+bzip2 -d ./dataset/imp.20131021.txt.bz2
+bzip2 -d ./dataset/imp.20131022.txt.bz2
+bzip2 -d ./dataset/imp.20131023.txt.bz2
+bzip2 -d ./dataset/imp.20131024.txt.bz2
+bzip2 -d ./dataset/imp.20131025.txt.bz2
+bzip2 -d ./dataset/imp.20131026.txt.bz2
+bzip2 -d ./dataset/imp.20131027.txt.bz2
+hdfs dfs -mkdir /user/raj_ops/dataset/imp
+hdfs dfs -mkdir /user/raj_ops/dataset/city
+hdfs dfs -copyFromLocal ./dataset/city.cn.txt /user/raj_ops/dataset/city
+hdfs dfs -rm ./dataset/city.cn.txt
+hdfs dfs -copyFromLocal ./dataset/imp* /user/raj_ops/dataset/imp
+
+CREATE EXTERNAL TABLE `city`(
+	`id` tinyint,
+	`name` string
+)
+ROW FORMAT DELIMITED
+	FIELDS TERMINATED BY '\t'
+	LINES TERMINATED BY '\n'
+LOCATION '/user/raj_ops/dataset/city'
+TBLPROPERTIES ( 'skip.header.line.count'='1' )
+
+CREATE EXTERNAL TABLE `useragent`(
+	`big_id` string,
+	`time_stamp` bigint,
+	`log_type` string,
+	`i_pin_you_id` bigint,
+	`user_agent` string,
+	`ip` string,
+	`region_id` int,
+	`city_id` int,
+	`ad_exchange` int,
+	`domain` string,
+	`url` string,
+	`anonymous_url` string,
+	`ad_slot_id` int,
+	`ad_slot_width` int,
+	`ad_slot_height` int,
+	`ad_slot_visibility` string,
+	`ad_slot_format` string,
+	`ad_slot_floor_price` double,
+	`creative_id` string,
+	`bidding_price` double,
+	`paying_price` double,
+	`landing_page_url` string,
+	`advertiser_id` int,
+	`user_profile_ids` string
+)
+ROW FORMAT DELIMITED
+	FIELDS TERMINATED BY '\t'
+	LINES TERMINATED BY '\n'
+LOCATION '/user/raj_ops/dataset/imp'
+TBLPROPERTIES ( 'skip.header.line.count'='1' )
+
+hdfs dfs -copyToLocal /user/raj_ops/useragent.zip
+unzip ./useragent.zip
+cd UserAgent
+hdfs dfs -copyFromLocal ./target/UserAgent-1.0-SNAPSHOT-jar-with-dependencies.jar /user/raj_ops
+/udfjar/useragent.jar       
+
+drop function parseua;
+
+create temporary function parseua as 'udf.ParseBrowser' using jar 'hdfs:////user/raj_ops/jar/useragent.jar';    
+set hive.execution.engine =mr;
+
+select user_agent, parseua(user_agent, 'os') as os,  parseua(user_agent, 'device') as device,  parseua(user_agent, 'browser') as browser
+from useragent
+limit 5;
+
+select c.name,
+MAX(parseua(ua.user_agent, 'device')) as device, 
+MAX(parseua(ua.user_agent, 'os')) as os, 
+MAX(parseua(ua.user_agent,'browser')) as browser
+from useragent ua
+inner join city c on c.id = ua.city_id
+group by c.name
